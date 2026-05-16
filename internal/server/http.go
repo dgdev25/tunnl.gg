@@ -4,7 +4,6 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
-	"html"
 	"io"
 	"log"
 	"net"
@@ -34,11 +33,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	host := strings.ToLower(stripPort(r.Host))
 	domain := strings.ToLower(s.domain)
-
-	if host == domain {
-		s.serveBareDomain(w, r)
-		return
-	}
 
 	if !strings.HasSuffix(host, "."+domain) {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
@@ -240,134 +234,11 @@ func hasWarningCookie(r *http.Request, sub string) bool {
 func (s *Server) redirectToWarningPage(w http.ResponseWriter, r *http.Request, sub string) {
 	originalURL := "https://" + r.Host + r.URL.RequestURI()
 	fullSubdomain := sub + "." + s.domain
-	warningURL := fmt.Sprintf("https://%s/warning?redirect=%s&subdomain=%s",
+	warningURL := fmt.Sprintf("https://%s/#/warning?redirect=%s&subdomain=%s",
 		s.domain,
 		url.QueryEscape(originalURL),
 		url.QueryEscape(fullSubdomain))
 	http.Redirect(w, r, warningURL, http.StatusTemporaryRedirect)
-}
-
-func (s *Server) serveBareDomain(w http.ResponseWriter, r *http.Request) {
-	switch r.URL.Path {
-	case "/warning":
-		if r.Method != http.MethodGet {
-			w.Header().Set("Allow", http.MethodGet)
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		s.serveWarningPage(w, r)
-	case "/warning/continue":
-		if r.Method != http.MethodGet && r.Method != http.MethodPost {
-			w.Header().Set("Allow", http.MethodGet+", "+http.MethodPost)
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		s.handleWarningContinue(w, r)
-	default:
-		http.NotFound(w, r)
-	}
-}
-
-func (s *Server) serveWarningPage(w http.ResponseWriter, r *http.Request) {
-	redirectURL, _, fullSubdomain, err := s.validWarningTarget(r)
-	if err != nil {
-		http.Error(w, "Bad Request", http.StatusBadRequest)
-		return
-	}
-
-	continueURL := "/warning/continue?redirect=" + url.QueryEscape(redirectURL.String()) +
-		"&subdomain=" + url.QueryEscape(fullSubdomain)
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	fmt.Fprintf(w, `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Continue to %s</title>
-<style>
-:root { color-scheme: light; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f6f5f1; color: #171717; }
-main { width: min(92vw, 560px); border: 1px solid #d8d5ca; background: #fffefa; padding: 32px; box-shadow: 0 24px 80px rgb(40 35 20 / 12%%); }
-.eyebrow { margin: 0 0 14px; color: #8a4b19; font-size: 13px; font-weight: 700; letter-spacing: 0; text-transform: uppercase; }
-h1 { margin: 0; font-size: 40px; line-height: 1; letter-spacing: 0; }
-p { color: #4a4740; font-size: 16px; line-height: 1.6; }
-code { font: inherit; color: #171717; overflow-wrap: anywhere; }
-.actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 26px; }
-a { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 18px; border: 1px solid #171717; color: #171717; text-decoration: none; font-weight: 700; }
-a.primary { background: #171717; color: #fffefa; }
-@media (max-width: 520px) { main { padding: 24px; } h1 { font-size: 30px; } }
-</style>
-</head>
-<body>
-<main>
-<p class="eyebrow">Public tunnel warning</p>
-<h1>Check this destination before continuing.</h1>
-<p>You are opening <code>%s</code>, a site published through a temporary tunnel. Only continue if you trust the person who sent this link.</p>
-<div class="actions">
-<a class="primary" href="%s">Continue to site</a>
-<a href="https://%s/">Leave</a>
-</div>
-</main>
-</body>
-</html>`, html.EscapeString(fullSubdomain), html.EscapeString(fullSubdomain), html.EscapeString(continueURL), html.EscapeString(s.domain))
-
-}
-
-func (s *Server) handleWarningContinue(w http.ResponseWriter, r *http.Request) {
-	redirectURL, sub, _, err := s.validWarningTarget(r)
-	if err != nil {
-		http.Error(w, "Bad Request", http.StatusBadRequest)
-		return
-	}
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     config.WarningCookieName + "_" + sub,
-		Value:    "1",
-		Path:     "/",
-		Domain:   s.domain,
-		MaxAge:   config.WarningCookieMaxAge,
-		Secure:   true,
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-	})
-	http.Redirect(w, r, redirectURL.String(), http.StatusFound)
-}
-
-func (s *Server) validWarningTarget(r *http.Request) (*url.URL, string, string, error) {
-	rawRedirect := r.URL.Query().Get("redirect")
-	if rawRedirect == "" {
-		return nil, "", "", fmt.Errorf("missing redirect")
-	}
-
-	redirectURL, err := url.Parse(rawRedirect)
-	if err != nil {
-		return nil, "", "", err
-	}
-	if redirectURL.Scheme != "https" || redirectURL.Host == "" {
-		return nil, "", "", fmt.Errorf("invalid redirect URL")
-	}
-
-	domain := strings.ToLower(s.domain)
-	fullSubdomain := strings.ToLower(stripPort(redirectURL.Host))
-	if !strings.HasSuffix(fullSubdomain, "."+domain) {
-		return nil, "", "", fmt.Errorf("redirect host outside domain")
-	}
-
-	sub := strings.TrimSuffix(fullSubdomain, "."+domain)
-	if !subdomain.IsValid(sub) {
-		return nil, "", "", fmt.Errorf("invalid subdomain")
-	}
-
-	if expected := r.URL.Query().Get("subdomain"); expected != "" {
-		expectedHost := strings.ToLower(stripPort(expected))
-		if expectedHost != fullSubdomain {
-			return nil, "", "", fmt.Errorf("subdomain mismatch")
-		}
-	}
-
-	return redirectURL, sub, fullSubdomain, nil
 }
 
 func isWebSocketRequest(r *http.Request) bool {
