@@ -77,21 +77,23 @@ func main() {
 
 	// HTTP server for redirect
 	httpServer := &http.Server{
-		Addr:         cfg.HTTPAddr,
-		Handler:      srv.HTTPRedirectHandler(),
-		ReadTimeout:  config.HTTPReadTimeout,
-		WriteTimeout: config.HTTPWriteTimeout,
-		IdleTimeout:  config.HTTPIdleTimeout,
+		Addr:              cfg.HTTPAddr,
+		Handler:           srv.HTTPRedirectHandler(),
+		ReadHeaderTimeout: config.HTTPReadHeaderTimeout,
+		ReadTimeout:       config.HTTPReadTimeout,
+		WriteTimeout:      config.HTTPWriteTimeout,
+		IdleTimeout:       config.HTTPIdleTimeout,
 	}
 
 	// HTTPS server
 	httpsServer := &http.Server{
-		Addr:           cfg.HTTPSAddr,
-		Handler:        srv,
-		ReadTimeout:    config.HTTPSReadTimeout,
-		WriteTimeout:   config.HTTPSWriteTimeout,
-		IdleTimeout:    config.HTTPSIdleTimeout,
-		MaxHeaderBytes: 1 << 20,
+		Addr:              cfg.HTTPSAddr,
+		Handler:           srv,
+		ReadHeaderTimeout: config.HTTPSReadHeaderTimeout,
+		ReadTimeout:       config.HTTPSReadTimeout,
+		WriteTimeout:      config.HTTPSWriteTimeout,
+		IdleTimeout:       config.HTTPSIdleTimeout,
+		MaxHeaderBytes:    1 << 20,
 		TLSConfig: &tls.Config{
 			MinVersion: tls.VersionTLS12,
 		},
@@ -99,10 +101,11 @@ func main() {
 
 	// Stats server (localhost only)
 	statsServer := &http.Server{
-		Addr:         cfg.StatsAddr,
-		Handler:      srv.StatsHandler(),
-		ReadTimeout:  config.StatsReadTimeout,
-		WriteTimeout: config.StatsWriteTimeout,
+		Addr:              cfg.StatsAddr,
+		Handler:           srv.StatsHandler(),
+		ReadHeaderTimeout: config.StatsReadHeaderTimeout,
+		ReadTimeout:       config.StatsReadTimeout,
+		WriteTimeout:      config.StatsWriteTimeout,
 	}
 
 	// Channel to signal fatal server errors

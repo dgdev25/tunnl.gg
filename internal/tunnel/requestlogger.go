@@ -5,6 +5,7 @@ import (
 	"io"
 	"sync"
 	"time"
+	"unicode"
 )
 
 const maxPathDisplay = 50
@@ -12,9 +13,9 @@ const maxPathDisplay = 50
 // RequestLogger writes formatted request logs to an io.Writer (typically an SSH channel).
 // It uses a buffered channel and a single drain goroutine to avoid blocking callers.
 type RequestLogger struct {
-	w      io.Writer
-	ch     chan string
-	done   chan struct{}
+	w         io.Writer
+	ch        chan string
+	done      chan struct{}
 	closeOnce sync.Once
 }
 
@@ -73,14 +74,18 @@ func (l *RequestLogger) Close() {
 }
 
 func truncatePath(path string) string {
+	path = sanitizeTerminalText(path)
 	if len(path) > maxPathDisplay {
-		return path[:maxPathDisplay-3] + "..."
+		runes := []rune(path)
+		if len(runes) > maxPathDisplay {
+			return string(runes[:maxPathDisplay-3]) + "..."
+		}
 	}
 	return path
 }
 
 func formatRequestLog(method, path string, status int, latency time.Duration) string {
-	return fmt.Sprintf("  %-4s %-53s %d  %s\r\n", method, truncatePath(path), status, formatLatency(latency))
+	return fmt.Sprintf("  %-4s %-53s %d  %s\r\n", sanitizeTerminalText(method), truncatePath(path), status, formatLatency(latency))
 }
 
 func formatWSOpen(path string) string {
@@ -134,4 +139,33 @@ func formatBytes(b int64) string {
 	default:
 		return fmt.Sprintf("%.1fGB", float64(b)/(1024*1024*1024))
 	}
+}
+
+func sanitizeTerminalText(s string) string {
+	for _, r := range s {
+		if isUnsafeTerminalRune(r) {
+			return escapeTerminalText(s)
+		}
+	}
+	return s
+}
+
+func escapeTerminalText(s string) string {
+	out := make([]rune, 0, len(s))
+	for _, r := range s {
+		if !isUnsafeTerminalRune(r) {
+			out = append(out, r)
+			continue
+		}
+		escaped := fmt.Sprintf("\\x%02x", r)
+		if r > 0xff {
+			escaped = fmt.Sprintf("\\u%04x", r)
+		}
+		out = append(out, []rune(escaped)...)
+	}
+	return string(out)
+}
+
+func isUnsafeTerminalRune(r rune) bool {
+	return r < 0x20 || r == 0x7f || unicode.Is(unicode.Cf, r)
 }

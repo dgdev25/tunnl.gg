@@ -8,7 +8,7 @@ import (
 const (
 	DefaultDomain     = "tunnl.gg"
 	InactivityTimeout = 2 * time.Hour
-	MaxTunnelsPerIP   = 3                // Reduced from 5
+	MaxTunnelsPerIP   = 3 // Reduced from 5
 	MaxTotalTunnels   = 1000
 
 	// SSH handshake timeout
@@ -36,15 +36,18 @@ const (
 	MaxResponseBodySize = 128 * 1024 * 1024 // 128MB
 
 	// HTTP server timeouts
-	HTTPReadTimeout    = 10 * time.Second
-	HTTPWriteTimeout   = 10 * time.Second
-	HTTPIdleTimeout    = 30 * time.Second
-	HTTPSReadTimeout   = 30 * time.Second
-	HTTPSWriteTimeout  = 30 * time.Second
-	HTTPSIdleTimeout   = 120 * time.Second
-	StatsReadTimeout   = 5 * time.Second
-	StatsWriteTimeout  = 5 * time.Second
-	ShutdownTimeout    = 10 * time.Second
+	HTTPReadHeaderTimeout  = 5 * time.Second
+	HTTPReadTimeout        = 10 * time.Second
+	HTTPWriteTimeout       = 10 * time.Second
+	HTTPIdleTimeout        = 30 * time.Second
+	HTTPSReadHeaderTimeout = 5 * time.Second
+	HTTPSReadTimeout       = 30 * time.Second
+	HTTPSWriteTimeout      = 30 * time.Second
+	HTTPSIdleTimeout       = 120 * time.Second
+	StatsReadHeaderTimeout = 2 * time.Second
+	StatsReadTimeout       = 5 * time.Second
+	StatsWriteTimeout      = 5 * time.Second
+	ShutdownTimeout        = 10 * time.Second
 
 	// WebSocket limits
 	WebSocketIdleTimeout = 2 * time.Hour

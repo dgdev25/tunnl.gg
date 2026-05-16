@@ -22,6 +22,9 @@ func TestStripPort(t *testing.T) {
 		{"with port", "example.com:443", "example.com"},
 		{"without port", "example.com", "example.com"},
 		{"ipv4 with port", "127.0.0.1:8080", "127.0.0.1"},
+		{"ipv6 with port", "[::1]:8080", "::1"},
+		{"bracketed ipv6 without port", "[::1]", "::1"},
+		{"ipv6 without port", "::1", "::1"},
 		{"empty string", "", ""},
 	}
 
@@ -122,9 +125,9 @@ func TestSetSecurityHeaders(t *testing.T) {
 
 	expected := map[string]string{
 		"X-Content-Type-Options": "nosniff",
-		"X-Frame-Options":       "DENY",
-		"X-Xss-Protection":      "1; mode=block",
-		"Referrer-Policy":       "strict-origin-when-cross-origin",
+		"X-Frame-Options":        "DENY",
+		"X-Xss-Protection":       "1; mode=block",
+		"Referrer-Policy":        "strict-origin-when-cross-origin",
 	}
 
 	for header, want := range expected {
@@ -191,6 +194,20 @@ func TestLimitedReadCloser(t *testing.T) {
 		_, err = lrc.Read(buf)
 		if err == nil {
 			t.Error("expected error after exceeding limit")
+		}
+	})
+
+	t.Run("exactly at limit", func(t *testing.T) {
+		data := "hello"
+		rc := io.NopCloser(strings.NewReader(data))
+		lrc := &limitedReadCloser{rc: rc, limit: int64(len(data))}
+
+		buf, err := io.ReadAll(lrc)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if string(buf) != data {
+			t.Errorf("got %q, want %q", string(buf), data)
 		}
 	})
 
@@ -407,13 +424,83 @@ func TestRedirectToWarningPage(t *testing.T) {
 	}
 
 	loc := w.Header().Get("Location")
-	if !strings.HasPrefix(loc, "https://tunnl.gg/#/warning?") {
-		t.Errorf("Location = %q, want prefix https://tunnl.gg/#/warning?", loc)
+	if !strings.HasPrefix(loc, "https://tunnl.gg/warning?") {
+		t.Errorf("Location = %q, want prefix https://tunnl.gg/warning?", loc)
 	}
 	if !strings.Contains(loc, "redirect="+url.QueryEscape("https://happy-tiger-abcdef01.tunnl.gg/path?q=1")) {
 		t.Errorf("Location missing redirect param: %q", loc)
 	}
 	if !strings.Contains(loc, "subdomain="+url.QueryEscape("happy-tiger-abcdef01.tunnl.gg")) {
 		t.Errorf("Location missing subdomain param: %q", loc)
+	}
+}
+
+func TestWarningPage(t *testing.T) {
+	s := newTestServer(t)
+	redirectTarget := "https://happy-tiger-abcdef01.tunnl.gg/path?q=1"
+	reqURL := "https://tunnl.gg/warning?redirect=" + url.QueryEscape(redirectTarget) +
+		"&subdomain=" + url.QueryEscape("happy-tiger-abcdef01.tunnl.gg")
+	r := httptest.NewRequest(http.MethodGet, reqURL, nil)
+	r.Host = "tunnl.gg"
+	w := httptest.NewRecorder()
+
+	s.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "happy-tiger-abcdef01.tunnl.gg") {
+		t.Errorf("warning page missing target host: %q", body)
+	}
+	if !strings.Contains(body, "/warning/continue?") {
+		t.Errorf("warning page missing continue link: %q", body)
+	}
+}
+
+func TestWarningContinueSetsCookie(t *testing.T) {
+	s := newTestServer(t)
+	redirectTarget := "https://happy-tiger-abcdef01.tunnl.gg/path?q=1"
+	reqURL := "https://tunnl.gg/warning/continue?redirect=" + url.QueryEscape(redirectTarget) +
+		"&subdomain=" + url.QueryEscape("happy-tiger-abcdef01.tunnl.gg")
+	r := httptest.NewRequest(http.MethodGet, reqURL, nil)
+	r.Host = "tunnl.gg"
+	w := httptest.NewRecorder()
+
+	s.ServeHTTP(w, r)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusFound)
+	}
+	if got := w.Header().Get("Location"); got != redirectTarget {
+		t.Errorf("Location = %q, want %q", got, redirectTarget)
+	}
+	setCookie := w.Header().Get("Set-Cookie")
+	if !strings.Contains(setCookie, config.WarningCookieName+"_happy-tiger-abcdef01=1") {
+		t.Errorf("Set-Cookie missing warning cookie: %q", setCookie)
+	}
+	if !strings.Contains(setCookie, "Domain=tunnl.gg") {
+		t.Errorf("Set-Cookie missing parent domain: %q", setCookie)
+	}
+	if !strings.Contains(setCookie, "HttpOnly") || !strings.Contains(setCookie, "Secure") {
+		t.Errorf("Set-Cookie missing security attributes: %q", setCookie)
+	}
+}
+
+func TestWarningContinueRejectsExternalRedirect(t *testing.T) {
+	s := newTestServer(t)
+	reqURL := "https://tunnl.gg/warning/continue?redirect=" + url.QueryEscape("https://evil.com/") +
+		"&subdomain=" + url.QueryEscape("happy-tiger-abcdef01.tunnl.gg")
+	r := httptest.NewRequest(http.MethodGet, reqURL, nil)
+	r.Host = "tunnl.gg"
+	w := httptest.NewRecorder()
+
+	s.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+	if loc := w.Header().Get("Location"); loc != "" {
+		t.Errorf("Location should be empty for rejected redirect, got %q", loc)
 	}
 }

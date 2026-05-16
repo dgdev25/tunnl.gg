@@ -178,3 +178,20 @@ func TestFormatRequestLog_LongPath(t *testing.T) {
 		t.Errorf("full long path should not appear in output: %q", out)
 	}
 }
+
+func TestFormatRequestLog_EscapesTerminalControls(t *testing.T) {
+	out := formatRequestLog("GET", "/ok\x1b[31m\r\nspoofed\u202e", 200, time.Millisecond)
+	logLine := strings.TrimSuffix(out, "\r\n")
+
+	if strings.Contains(logLine, "\x1b") {
+		t.Errorf("output contains raw escape character: %q", out)
+	}
+	if strings.Contains(logLine, "\r") || strings.Contains(logLine, "\n") {
+		t.Errorf("output contains raw line break: %q", out)
+	}
+	for _, want := range []string{`\x1b`, `\x0d`, `\x0a`, `\u202e`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing escaped sequence %q: %q", want, out)
+		}
+	}
+}

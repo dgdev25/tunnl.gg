@@ -91,6 +91,7 @@ func (s *Server) HandleSSHConnection(conn net.Conn) {
 
 	// Handle global requests (port forwarding)
 	go func() {
+		registered := false
 		for {
 			select {
 			case req, ok := <-reqs:
@@ -99,6 +100,10 @@ func (s *Server) HandleSSHConnection(conn net.Conn) {
 				}
 				switch req.Type {
 				case "tcpip-forward":
+					if registered {
+						req.Reply(false, nil)
+						continue
+					}
 					var fwdReq tcpipForwardRequest
 					if err := ssh.Unmarshal(req.Payload, &fwdReq); err != nil {
 						req.Reply(false, nil)
@@ -108,6 +113,7 @@ func (s *Server) HandleSSHConnection(conn net.Conn) {
 					bindPort = fwdReq.BindPort
 					tun = s.RegisterTunnel(sub, tunnelListener, bindAddr, bindPort, clientIP)
 					tun.SetSSHConn(sshConn)
+					registered = true
 					close(tunnelRegistered)
 					req.Reply(true, nil)
 				case "cancel-tcpip-forward":
